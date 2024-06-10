@@ -7,6 +7,7 @@ from selenium.webdriver.support.wait import TimeoutException
 
 from auth.dependencies import get_current_active_user
 from auth.models import User
+from routers.exceptions import NoVATNumberFoundException, NoNameFoundException
 from info_getters.egr_info_getter import *
 from info_getters.license_info_getter import LicenseInfoGetter
 from logger import logger
@@ -15,25 +16,32 @@ subject_info_router = APIRouter()
 
 @subject_info_router.get('/find_subject_by_vat_number/{vat_number}/')
 async def find_subject_by_vat_number(
-        user : Annotated[User, Depends(get_current_active_user)],
-        vat_number : int = Path(ge=100000000, le=999999999)
-    ):
+    user : Annotated[User, Depends(get_current_active_user)],
+    vat_number : int = Path(ge=100000000, le=999999999)
+):
+
     data = await asyncio.create_task(find_vat(vat_number))
+    if not data: 
+        raise NoVATNumberFoundException(vat_number)
     return JSONResponse({'data' : data})
 
 @subject_info_router.get('/find_subjects_by_name/{name}')
 async def find_subjects_by_name(
-        user : Annotated[User, Depends(get_current_active_user)],
-        name : str
-    ):
+    user : Annotated[User, Depends(get_current_active_user)],
+    name : str
+):
     data = await asyncio.create_task(find_vat_by_name(name))
+    if not data: 
+        raise NoNameFoundException(name)
     return JSONResponse({'data' : data})
 
 @subject_info_router.get('/get_full_info/{vat_number}/')
 async def get_full_info(
-        user : Annotated[User, Depends(get_current_active_user)],
-        vat_number : int = Path(ge=100000000, le=999999999),
-    ):
+    user : Annotated[User, Depends(get_current_active_user)],
+    vat_number : int = Path(ge=100000000, le=999999999),
+):
+    if not await create_task(find_vat(vat_number)): raise NoVATNumberFoundException(vat_number)
+
     data = await asyncio.create_task(get_full_info_about_subject(vat_number))
     return JSONResponse({'data' : data})
 
@@ -42,6 +50,8 @@ async def get_base_info(
     user : Annotated[User, Depends(get_current_active_user)],
     vat_number : int = Path(ge=100000000, le=999999999)
 ):
+    if not await create_task(find_vat(vat_number)): raise NoVATNumberFoundException(vat_number)
+
     data = await asyncio.create_task(get_base_info_about_subject(vat_number))
     return JSONResponse({'data' : data})    
 
@@ -50,11 +60,13 @@ async def get_license_info(
     user : Annotated[User, Depends(get_current_active_user)],
     vat_number : int = Path(ge=100000000, le=999999999)
 ):
+    if not await create_task(find_vat(vat_number)): raise NoVATNumberFoundException(vat_number)
+
     try:
         data = LicenseInfoGetter.get_info_about_license(vat_number)
         return data
     except TimeoutException:
-        raise HTTPException(status_code=404, detail="Subject has no licenses.")
+        raise HTTPException(status_code=404, detail="No licenses were detected or the waiting time has been exceeded.")
     except Exception as e:
         logger.exception(f"Information about license can't be retrieved: {e}", exc_info=True)   
         raise HTTPException(status_code=500, detail="Information about license can't be retrieved.")

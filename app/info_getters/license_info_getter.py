@@ -2,6 +2,7 @@ from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.wait import WebDriverWait, TimeoutException
 from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import TimeoutException
 
 from logger import logger
 
@@ -54,9 +55,11 @@ class LicenseInfoGetter:
                 }
             
             data = chunk_1 | chunk_2
+        except TimeoutException:
+            raise e
         except Exception as e:
             logger.exception(f'Exception during parsing html: {e}', exc_info=True)
-            data = {}
+            raise e
         finally:
             return data
         
@@ -65,7 +68,12 @@ class LicenseHTMLParserCommands():
         self.driver = driver
 
     def wait_until_located(self, by, value, time=1):
-        WebDriverWait(self.driver, time).until(EC.presence_of_element_located((by, value)))
+        try:
+            WebDriverWait(self.driver, time).until(EC.presence_of_element_located((by, value)))
+        except TimeoutException:
+            exc_msg = "The waiting time for the license information page to be detected has been exceeded."
+            logger.exception(exc_msg, exc_info=True)
+            raise TimeoutException(exc_msg)
 
     def find_info_about_license_actions(self) -> bool:
         try:

@@ -3,6 +3,7 @@ from asyncio import create_task
 from aiohttp import ClientSession
 
 from constants import API_URLS_FOR_QUERING_EGR
+from routers.exceptions import NoVATNumberFoundException
 
 ENDPOINTS_TO_FIELDS = {
     'getBaseInfoByRegNum' : {
@@ -48,6 +49,27 @@ ENDPOINTS_TO_FIELDS = {
     }
 }
 
+async def find_vat(vat_number : int):
+    data = []
+    async with ClientSession(API_URLS_FOR_QUERING_EGR['base']) as session:
+        task = create_task(make_request(session, vat_number, ['vat_number']))
+        vat_number = (await task).get('vat_number')
+        if vat_number:
+            data.append(vat_number)
+
+    return data
+
+async def find_vat_by_name(name : str):
+    data = []
+    async with ClientSession(API_URLS_FOR_QUERING_EGR['base']) as session:
+        subjects_info = await create_task(make_request(session, name, ['vat_number_by_name']))
+        if any([endpoint in subjects_info for endpoint in ENDPOINTS_TO_FIELDS]):
+            data = [int(info['vat_number_by_name']) for info in list(subjects_info.values())[0]]
+        elif subjects_info.get('vat_number_by_name', None):
+            data = [int(subjects_info['vat_number_by_name'])]
+
+    return data
+
 async def get_full_info_about_subject(vat_number : int):
     data = {}
     async with ClientSession(API_URLS_FOR_QUERING_EGR['base']) as session:
@@ -72,25 +94,6 @@ async def get_base_info_about_subject(vat_number : int):
         data = await create_task(make_request(session, vat_number, fields))
 
     return data | subject_type
-
-async def find_vat(vat_number : int):
-    data = []
-    async with ClientSession(API_URLS_FOR_QUERING_EGR['base']) as session:
-        task = create_task(make_request(session, vat_number, ['vat_number']))
-        data = [(await task).get('vat_number')]
-    return data
-
-async def find_vat_by_name(name : str):
-    data = []
-    async with ClientSession(API_URLS_FOR_QUERING_EGR['base']) as session:
-        subjects_info = await create_task(make_request(session, name, ['vat_number_by_name']))
-        if any([endpoint in subjects_info for endpoint in ENDPOINTS_TO_FIELDS]):
-            data = [int(info['vat_number_by_name']) for info in list(subjects_info.values())[0]]
-        elif subjects_info.get('vat_number_by_name', None):
-            data = [int(subjects_info['vat_number_by_name'])]
-        else:
-            data = [None]
-    return data
 
 def get_data_from_api_decorator(func):
     async def wrapper(*args, **kwargs):
@@ -140,10 +143,10 @@ def get_data_from_api_decorator(func):
                         data = data[0] if isinstance(data, list) and len(data) == 1 else data
                         result = result | await func(session, value_for_search, endpoint_to_fields[endpoint], data=data, endpoint=endpoint)
                     except Exception as e:
-                        continue
+                        raise e
 
         except Exception as e:
-            'log'
+            raise e
         finally:
             return result
         

@@ -15,7 +15,7 @@ file_handler.setFormatter(formatter)
 
 logger.handlers = [stream_handler, file_handler]
 
-logger.setLevel(logging.INFO)
+logger.setLevel(logging.DEBUG)
 
 logging.getLogger('urllib3.connectionpool').setLevel(logging.WARNING)
 logging.getLogger('selenium.webdriver.remote.remote_connection').setLevel(logging.WARNING)
