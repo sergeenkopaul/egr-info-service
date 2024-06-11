@@ -1,9 +1,9 @@
 from asyncio import create_task
 
 from aiohttp import ClientSession
+from fastapi import HTTPException
 
 from constants import API_URLS_FOR_QUERING_EGR
-from routers.exceptions import NoVATNumberFoundException
 
 ENDPOINTS_TO_FIELDS = {
     'getBaseInfoByRegNum' : {
@@ -52,6 +52,7 @@ ENDPOINTS_TO_FIELDS = {
 async def find_vat(vat_number : int):
     data = []
     async with ClientSession(API_URLS_FOR_QUERING_EGR['base']) as session:
+        
         task = create_task(make_request(session, vat_number, ['vat_number']))
         vat_number = (await task).get('vat_number')
         if vat_number:
@@ -132,23 +133,19 @@ def get_data_from_api_decorator(func):
             return result
 
         result = {}
-        try:
-            session, value_for_search, fields = unpack(args, kwargs)
-            fields = prepare_fields(fields)
-            endpoint_to_fields = prepare_endpoint_to_fields(fields)
-            for endpoint in endpoint_to_fields:
-                async with session.get(f'{API_URLS_FOR_QUERING_EGR['external']}/{endpoint}/{value_for_search}', ssl=False) as response:
-                    try:
-                        data = await response.json()
-                        data = data[0] if isinstance(data, list) and len(data) == 1 else data
-                        result = result | await func(session, value_for_search, endpoint_to_fields[endpoint], data=data, endpoint=endpoint)
-                    except Exception as e:
-                        raise e
+        session, value_for_search, fields = unpack(args, kwargs)
+        fields = prepare_fields(fields)
+        endpoint_to_fields = prepare_endpoint_to_fields(fields)
+        for endpoint in endpoint_to_fields:
+            async with session.get(f'{API_URLS_FOR_QUERING_EGR['external']}/{endpoint}/{value_for_search}', ssl=False) as response:
+                if response.status >= 500:
+                    raise HTTPException(503, "Information cannot be provided due to unavailability of the service https://egr.gov.by/api/swagger-ui.html#/main-controller.")
+                elif response.status == 200:
+                    data = await response.json()
+                    data = data[0] if isinstance(data, list) and len(data) == 1 else data
+                    result = result | await func(session, value_for_search, endpoint_to_fields[endpoint], data=data, endpoint=endpoint)
 
-        except Exception as e:
-            raise e
-        finally:
-            return result
+        return result
         
     return wrapper
 

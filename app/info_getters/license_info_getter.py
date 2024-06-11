@@ -9,34 +9,36 @@ from logger import logger
 class LicenseInfoGetter:
 
     @classmethod
-    def get_info_about_license(cls, vat_number : int | str) -> dict:
+    def get_info_about_license(cls, vat_number : int | str) -> list[dict]:
         cls.vat_number = str(vat_number)
         options = webdriver.ChromeOptions()
         options.add_argument('--headless')
         with webdriver.Chrome(options=options) as driver:
             cls.driver = driver
-            link = cls.__get_link_with_license_page()
-            return cls.__parse_html(link)
+            links = cls.__get_links_with_license_page()
+            return [cls.__parse_html(link) for link in links]
         
     @classmethod
-    def __get_link_with_license_page(cls):
+    def __get_links_with_license_page(cls):
         try:
             cls.driver.get('https://license.gov.by/')
             cls.driver.find_element(By.XPATH, '//*[@id="header"]/div[1]/div[3]/div/div/div/ul/li/div/span[1]/input').send_keys(str(cls.vat_number))
             elements = WebDriverWait(cls.driver, 2).until(
                     EC.presence_of_all_elements_located((By.CLASS_NAME, "active")))
-            link = elements[-1].get_attribute('href')
-            return link
+            links = [elem.get_attribute('href') for elem in elements]
+            return links[2::3]
         except Exception as e:
-            logger.exception(f"Link can't be given: {e}")
+            logger.exception(f"Links can't be given: {e}", exc_info=True)
             raise e
     
     @classmethod
     def __parse_html(cls, link : str) -> dict:
         try:
             cls.driver.get(link)
-            parser = LicenseHTMLParserCommands(cls.driver)
-            parser.wait_until_located(By.XPATH, "//*[text()='Наименование органа, предоставившего лицензию:']")
+            parser = LicenseHTMLParser(cls.driver)
+            WebDriverWait(cls.driver, 1).until(
+                EC.presence_of_element_located((By.XPATH, "//*[text()='Наименование органа, предоставившего лицензию:']"))
+            )
 
             chunk_1 = {
                 'agency' : parser.get_agency_info(),
@@ -54,35 +56,26 @@ class LicenseInfoGetter:
                     'license_actions' : parser.get_license_actions(),
                 }
             
-            data = chunk_1 | chunk_2
-        except TimeoutException:
+            return chunk_1 | chunk_2
+        except TimeoutException as e:
+            logger.debug("The waiting time for the license information page to be detected has been exceeded.")
             raise e
         except Exception as e:
             logger.exception(f'Exception during parsing html: {e}', exc_info=True)
             raise e
-        finally:
-            return data
         
-class LicenseHTMLParserCommands():
+class LicenseHTMLParser():
     def __init__(self, driver : webdriver.Chrome) -> None:
         self.driver = driver
-
-    def wait_until_located(self, by, value, time=1):
-        try:
-            WebDriverWait(self.driver, time).until(EC.presence_of_element_located((by, value)))
-        except TimeoutException:
-            exc_msg = "The waiting time for the license information page to be detected has been exceeded."
-            logger.exception(exc_msg, exc_info=True)
-            raise TimeoutException(exc_msg)
 
     def find_info_about_license_actions(self) -> bool:
         try:
             self.driver.find_element(By.XPATH, "//*[text()='Информация об изменениях или дополнениях лицензии']").click()
-            self.wait_until_located(By.XPATH, "//*[text()='Дата выполнения действия с лицензией']")
+            WebDriverWait(self.driver, 1).until(EC.presence_of_element_located((By.XPATH, "//*[text()='Дата выполнения действия с лицензией']")))
             logger.debug(f'Information found')
             return True
         except TimeoutException:
-            logger.warning("Information about license_actions wasn't detected.")
+            logger.debug("Information about actions with license wasn't detected.")
             return False
         except Exception as e:
             logger.exception(f'Exception during a proccess looking for license_actions: {e}', exc_info=True)
